@@ -200,8 +200,42 @@ class PixelSampler:  # pylint: disable=too-few-public-methods
         else:
             raise ValueError("image_batch['image'] must be a list or torch.Tensor")
         return pixel_batch
+    
+    
+class SparsePixelSampler(PixelSampler):
+    """Samples random pixels from sparse keypoints in metadata
+    
+    Args:
+        later    
+    """
+    
+    def sample_method(
+        self,
+        batch_size: int,
+        num_images: int,
+        num_points: list,
+        mask: Optional[TensorType] = None,
+        device: Union[torch.device, str] = "cpu",
+    ) -> TensorType["batch_size", 1]:
+        """
+        Naive pixel sampler, uniformly samples across all possible keypoints in the given image.
 
+        Args:
+            batch_size: number of samples in a batch
+            num_images: number of images to sample over
+            num_points: list with number of keypoints in each image
+            #mask: mask of possible pixels in an image to sample from.
+        """
+        keypoints_per_image = batch_size // num_images
+        indices = torch.floor(torch.rand((keypoints_per_image, 1), device=device) * torch.tensor([num_images], device=device)).long()
+        indices = torch.floor(
+                torch.rand((batch_size, 3), device=device)
+                * torch.tensor([num_images, num_points, 1], device=device)
+        ).long()
 
+        return indices
+        
+    
 class EquirectangularPixelSampler(PixelSampler):  # pylint: disable=too-few-public-methods
     """Samples 'pixel_batch's from 'image_batch's. Assumes images are
     equirectangular and the sampling is done uniformly on the sphere.
