@@ -97,7 +97,8 @@ class PixelSampler:  # pylint: disable=too-few-public-methods
 
         c, y, x = (i.flatten() for i in torch.split(indices, 1, dim=-1))
         collated_batch = {
-            key: value[c, y, x] for key, value in batch.items() if key != "image_idx" and value is not None
+            key: value[c, y, x] for key, value in batch.items() if key != "image_idx" and key != "depth" and \
+            key != "coord" and key != "weight" and value is not None
         }
 
         assert collated_batch["image"].shape == (num_rays_per_batch, 3), collated_batch["image"].shape
@@ -166,7 +167,8 @@ class PixelSampler:  # pylint: disable=too-few-public-methods
         collated_batch = {
             key: value[c, y, x]
             for key, value in batch.items()
-            if key != "image_idx" and key != "image" and key != "mask" and value is not None
+            if key != "image_idx" and key != "image" and key != "mask" and key != "depth" and \
+            key != "coord" and key != "weight" and value is not None
         }
 
         collated_batch["image"] = torch.cat(all_images, dim=0)
@@ -200,8 +202,125 @@ class PixelSampler:  # pylint: disable=too-few-public-methods
         else:
             raise ValueError("image_batch['image'] must be a list or torch.Tensor")
         return pixel_batch
+    
+    
+class MetaSampler(PixelSampler):
+    """Samples meta data w.r.t samples from parent class
+    
+    Args:
+        num_rays_per_batch: number of rays to sample per batch
+        keep_full_image: whether or not to include a reference to the full image in returned batch
+        rgb_rays_part: which part of rays in batch are for RGB color (remaining will be depth rays)
+    """
+    
+    def sample_meta(
+        self,
+        batch_size: int,
+        num_points: int,
+        num_images: int = 1,
+        device: Union[torch.device, str] = "cpu",
+    ) -> TensorType["batch_size"]:
+        """Sampling is supposed to be done for 1 image at a time"""
+        
+        indices = torch.floor(
+            torch.rand((batch_size, 2), device=device) * torch.tensor([num_images, num_points], device=device)
+        ).long()
+        return indices
+    
+    def collate_depth_dataset_batch_list(self, batch: Dict, num_rays_per_batch: int, keep_full_image: bool = False):
+        """
+        Args:
+            batch: batch of images to sample from
+            num_rays_per_batch: number of rays to sample per batch
+            keep_full_image: whether or not to include a reference to the full image in returned batch
+        """
 
+        device = batch["image"][0].device
+        num_images = len(batch["image"])
 
+        # only sample within the mask, if the mask is in the batch
+        all_indices = []
+        all_depths = []
+        all_weights = []
+        all_coords = []
+
+        if "mask" in batch:
+            raise NotImplementedError()
+        else:
+            num_rays_in_batch = num_rays_per_batch // num_images
+            for i in range(num_images):
+                num_points = batch["depth"][i].shape[0]
+                if i == num_images - 1:
+                    num_rays_in_batch = num_rays_per_batch - (num_images - 1) * num_rays_in_batch
+                indices = self.sample_meta(num_rays_in_batch, num_points, 1,  device=device)
+                assert indices.shape == (num_rays_in_batch, 2), indices.shape
+                
+                indices[:, 0] = i
+                all_indices.append(indices)
+                all_depths.append(batch["depth"][i][indices[:, 1]])
+                all_weights.append(batch["weight"][i][indices[:, 1]])
+                all_coords.append(batch["coord"][i][indices[:, 1]])
+
+        indices = torch.cat(all_indices, dim=0)
+
+        c, depth_idx = (i.flatten() for i in torch.split(indices, 1, dim=-1))
+        
+        collated_batch = dict()
+        #collated_batch = {
+        #    key: value[c, depth_idx]
+        #    for key, value in batch.items()
+        #    if key != "image_idx" and key != "image" and key != "mask" and value is not None
+        #}
+
+        collated_batch["depth"] = torch.cat(all_depths, dim=0)[..., None]
+        collated_batch["weight"] = torch.cat(all_weights, dim=0)[..., None]
+        collated_batch["coord"] = torch.cat(all_coords, dim=0)
+
+        assert collated_batch["depth"].shape == (num_rays_per_batch, 1), collated_batch["depth"].shape
+        assert collated_batch["weight"].shape == (num_rays_per_batch, 1), collated_batch["weight"].shape
+        assert collated_batch["coord"].shape == (num_rays_per_batch, 2), collated_batch["coord"].shape
+
+        # Needed to correct the random indices to their actual camera idx locations.
+        indices[:, 0] = batch["image_idx"][c]
+        collated_batch["depth_indices"] = indices  # with the abs camera indices
+
+        if keep_full_image:
+            collated_batch["full_image"] = batch["image"]
+
+        return collated_batch
+    
+    def sample(self, image_batch: Dict):
+        """Sample an image batch and return a pixel batch.
+
+        Args:
+            image_batch: batch of images to sample from
+        """
+        
+        rgb_rays_per_batch = int(self.num_rays_per_batch * self.kwargs["rgb_rays_part"])
+        depth_rays_per_batch = int((1.0-self.kwargs["rgb_rays_part"]) * self.num_rays_per_batch)
+        
+        if isinstance(image_batch["image"], list):
+            image_batch = dict(image_batch.items())  # copy the dictionary so we don't modify the original
+            pixel_batch = self.collate_image_dataset_batch_list(
+                image_batch, rgb_rays_per_batch, keep_full_image=self.keep_full_image
+            )
+        elif isinstance(image_batch["image"], torch.Tensor):
+            pixel_batch = self.collate_image_dataset_batch(
+                image_batch, rgb_rays_per_batch, keep_full_image=self.keep_full_image
+            )
+        else:
+            raise ValueError("image_batch['image'] must be a list or torch.Tensor")
+            
+        depth_batch = None
+        
+        if "depth" in image_batch.keys() and "coord" in image_batch.keys() and "weight" in image_batch.keys():
+            depth_batch = self.collate_depth_dataset_batch_list(
+                image_batch, depth_rays_per_batch, keep_full_image=self.keep_full_image
+            )
+            
+        return pixel_batch, depth_batch
+        
+        
 class EquirectangularPixelSampler(PixelSampler):  # pylint: disable=too-few-public-methods
     """Samples 'pixel_batch's from 'image_batch's. Assumes images are
     equirectangular and the sampling is done uniformly on the sphere.

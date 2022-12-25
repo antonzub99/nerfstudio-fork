@@ -688,6 +688,23 @@ class ProcessMetashape:
         for summary in summary_log:
             CONSOLE.print(summary, justify="center")
         CONSOLE.rule()
+        
+
+@dataclass
+class ProcessColmap:
+    data: Path
+    """Path the data, either a video file or a directory of images."""
+    output_dir: Path
+    """Path to the output directory."""
+    camera_type: Literal["pinhole", "perspective", "fisheye"] = "pinhole"
+        
+    def main(self):
+        num_matched_frames = colmap_utils.colmap_to_json(
+                    cameras_path=self.data / "sparse" / "0" / "cameras.bin",
+                    images_path=self.data / "sparse" / "0" / "images.bin",
+                    output_dir=self.output_dir,
+                    camera_model=CAMERA_MODELS[self.camera_type],
+                )
 
 
 Commands = Union[
@@ -697,6 +714,7 @@ Commands = Union[
     Annotated[ProcessMetashape, tyro.conf.subcommand(name="metashape")],
     Annotated[ProcessInsta360, tyro.conf.subcommand(name="insta360")],
     Annotated[ProcessRecord3D, tyro.conf.subcommand(name="record3d")],
+    Annotated[ProcessColmap, tyro.conf.subcommand(name="colmap")],
 ]
 
 

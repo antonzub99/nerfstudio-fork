@@ -32,11 +32,13 @@ CONSOLE = Console(width=120)
 class CameraModel(Enum):
     """Enum for camera types."""
 
+    PINHOLE = "PINHOLE"
     OPENCV = "OPENCV"
     OPENCV_FISHEYE = "OPENCV_FISHEYE"
 
 
 CAMERA_MODELS = {
+    "pinhole": CameraModel.PINHOLE,
     "perspective": CameraModel.OPENCV,
     "fisheye": CameraModel.OPENCV_FISHEYE,
 }

@@ -57,3 +57,26 @@ class RayGenerator(nn.Module):
             camera_opt_to_camera=camera_opt_to_camera,
         )
         return ray_bundle
+    
+    
+class MetaRayGenerator(RayGenerator):
+    
+    def __init__(self, cameras: Cameras, pose_optimizer: CameraOptimizer) -> None:
+        super().__init__(cameras, pose_optimizer)
+        #self.depth_coords = nn.Parameter(depth_coords, requires_grad=False)
+        
+    def forward(self, 
+                ray_indices: TensorType["num_rays", 3], 
+                depth_indices: TensorType["num_rays", 2],
+                depth_coords: TensorType["num_rays", 2]) -> RayBundle:
+        
+        rgb_ray_bundle = super().forward(ray_indices)
+        
+        c = depth_indices[:, 0]
+        
+        depth_ray_bundle = self.cameras.generate_rays(
+            camera_indices=c.unsqueeze(-1),
+            coords=depth_coords,
+        )
+        
+        return rgb_ray_bundle, depth_ray_bundle

@@ -194,3 +194,11 @@ def pred_normal_loss(
 ):
     """Loss between normals calculated from density and normals from prediction network."""
     return (weights[..., 0] * (1.0 - torch.sum(normals * pred_normals, dim=-1))).sum(dim=-1)
+
+
+def weighted_mse_loss(
+    weights: TensorType["bs":...,"num_samples", 1],
+    inputs: TensorType["bs":..., "num_samples", 3],
+    targets: TensorType["bs":..., "num_samples", 3],
+):
+    return torch.mean(((inputs-targets)**2) * weights)

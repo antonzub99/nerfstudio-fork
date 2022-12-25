@@ -33,7 +33,7 @@ from nerfstudio.configs.base_config import (
 from nerfstudio.configs.config_utils import to_immutable_dict
 from nerfstudio.engine.optimizers import OptimizerConfig
 from nerfstudio.engine.schedulers import SchedulerConfig
-from nerfstudio.pipelines.base_pipeline import VanillaPipelineConfig
+from nerfstudio.pipelines.base_pipeline import VanillaPipelineConfig, DSPipelineConfig
 
 CONSOLE = Console(width=120)
 
@@ -58,8 +58,11 @@ class ExperimentConfig(PrintableConfig):
     """Viewer configuration"""
     trainer: TrainerConfig = TrainerConfig()
     """Trainer configuration"""
-    pipeline: VanillaPipelineConfig = VanillaPipelineConfig()
+    
+    ### CHANGED FROM Vanilla !!!!!!!!!
+    pipeline: DSPipelineConfig = DSPipelineConfig()
     """Pipeline configuration"""
+    
     optimizers: Dict[str, Any] = to_immutable_dict(
         {
             "fields": {
