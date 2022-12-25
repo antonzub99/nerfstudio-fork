@@ -215,8 +215,36 @@ class NerfstudioDS(DataParser):
             sparse_images = read_images_binary(sparse_data / 'images.bin')
             sparse_points = read_points3d_binary(sparse_data / 'points3D.bin')
             
+            img_names = np.argsort([sparse_images[k].name for k in sparse_images])
+            
             errors = np.array([point.error for point in sparse_points.values()])
             mean_error = np.mean(errors)
+            
+            # near\far bounds filtering
+            
+            pts_arr = []
+            vis_arr = []
+            
+            for p_idx in sparse_points:
+                pts_arr.append(sparse_points[p_idx].xyz)
+                cams_arr = [0] * num_images
+                for idx in sparse_points[p_idx].image_ids:
+                    cams_arr[idx-1] = 1
+                vis_arr.append(cams_arr)
+            pts_arr = np.array(pts_arr)
+            vis_arr = np.array(vis_arr)
+            
+            zvals = np.sum(-(pts_arr[:, np.newaxis, :].transpose([0, 2, 1]) - poses[:, :3, 3:4] * poses[:, :3, 2:3]), 0)
+            
+            valid_zvals = zvals[vis_arr==1]
+            pose_bounds = []
+            for name_idx in img_names:
+                vis = vis_arr[:, i]
+                zs = zvals[:, i]
+                zs = zs[vis==1]
+                close_depth, far_depth = np.percentile(zs, .1), np.percentile(zs, 99.9)
+                pose_bounds.append(np.array([close_depth, far_depth]))
+            pose_bounds = np.array(pose_bounds)
             
             depth_data = []
             
@@ -229,12 +257,21 @@ class NerfstudioDS(DataParser):
                         continue
                     point3d = torch.tensor(sparse_points[id_3d].xyz, device=poses.device).type_as(poses)
                     depth = (poses[im_id-1, :3, 2].t() @ (point3d - poses[im_id-1, :3, 3])) * scale_factor #add scaling?
+                    
+                    if depth < pose_bounds[im_id-1, 0] * scale_factor or depth > pose_bounds[im_id, 1] * scale_factor:
+                        continue
+                    
+                    
                     # add filtering based on bounds near\far?
                     err = sparse_points[id_3d].error
                     weight = 2 * np.exp(-(err / mean_error)**2)
                     depths.append(depth)
-                    coords.append(point2d / self.downscale_factor)
+                    # colmap returns x,y coords - nerfstudio uses y,x later
+                    coords.append(np.roll(point2d, 1) / self.downscale_factor)
                     weights.append(weight)
+                if len(depths) > 0:
+                    print(im_id, len(depths), np.min(depths), np.max(depths), np.mean(depths))
+                    
                 depth_data.append({"depth": np.array(depths), 
                                    "coord": np.array(coords), 
                                    "weight": np.array(weights)}

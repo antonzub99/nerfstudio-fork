@@ -282,6 +282,8 @@ class VanillaDataManagerConfig(InstantiateConfig):
     """The scale factor for scaling spatial data such as images, mask, semantics
     along with relevant information about camera intrinsics
     """
+    rgb_depth_rays_split: float = 0.8
+    """How much of RGB and depth rays use during training"""
 
 
 class VanillaDataManager(DataManager):  # pylint: disable=abstract-method
