@@ -200,6 +200,7 @@ class NerfstudioDS(DataParser):
             method=orientation_method,
             center_poses=self.config.center_poses,
         )
+        print(transform_matrix.shape)
         
         # Scale poses
         scale_factor = 1.0
@@ -233,19 +234,29 @@ class NerfstudioDS(DataParser):
                 vis_arr.append(cams_arr)
             pts_arr = np.array(pts_arr)
             vis_arr = np.array(vis_arr)
+            #print(pts_arr.shape)
             
-            zvals = np.sum(-(pts_arr[:, np.newaxis, :].transpose([0, 2, 1]) - poses[:, :3, 3:4] * poses[:, :3, 2:3]), 0)
+            pts_arr = torch.tensor(pts_arr).type_as(poses)
+            pts_ones = torch.ones(pts_arr.shape[0], 1).type_as(poses)
+            pts_arr = torch.cat((pts_arr, pts_ones), dim=-1)
+            pts_arr = transform_matrix @ pts_arr.t()  # 3 x num_points
+            
+            zvals = torch.sum(
+                (pts_arr[..., None] \
+                  - poses[:, :3, 3:4].permute(1, 2, 0) ) * \
+                poses[:, :3, 2:3].permute(1, 2, 0), dim=0
+            )
             
             valid_zvals = zvals[vis_arr==1]
             pose_bounds = []
             for name_idx in img_names:
-                vis = vis_arr[:, i]
-                zs = zvals[:, i]
+                vis = vis_arr[:, name_idx]
+                zs = zvals[:, name_idx]
                 zs = zs[vis==1]
                 close_depth, far_depth = np.percentile(zs, .1), np.percentile(zs, 99.9)
                 pose_bounds.append(np.array([close_depth, far_depth]))
             pose_bounds = np.array(pose_bounds)
-            
+            print(np.amin(pose_bounds), np.amax(pose_bounds))
             depth_data = []
             
             for im_id in range(1, len(sparse_images)+1):
@@ -256,9 +267,12 @@ class NerfstudioDS(DataParser):
                     if id_3d == -1:
                         continue
                     point3d = torch.tensor(sparse_points[id_3d].xyz, device=poses.device).type_as(poses)
-                    depth = (poses[im_id-1, :3, 2].t() @ (point3d - poses[im_id-1, :3, 3])) * scale_factor #add scaling?
+                    point3d = torch.cat((point3d, torch.ones(1)), dim=0)
                     
-                    if depth < pose_bounds[im_id-1, 0] * scale_factor or depth > pose_bounds[im_id, 1] * scale_factor:
+                    depth = (poses[im_id-1, :3, 2].t() @ (transform_matrix @ point3d - poses[im_id-1, :3, 3])) * scale_factor #add scaling?
+                   
+                    if depth < pose_bounds[im_id-1, 0] * scale_factor or depth > pose_bounds[im_id-1, 1] * scale_factor:
+                        
                         continue
                     
                     
